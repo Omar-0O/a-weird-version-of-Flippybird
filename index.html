@@ -2,53 +2,95 @@
 <html>
 
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <style>
         canvas {
-			position: fixed;
-			width: 100%;
-			padding-bottom: 22%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: auto;
             border: 1px solid #d3d3d3;
             background-color: #f1f1f1;
+            touch-action: none; 
         }
-		
-		body {
-			margin: 0 0;
-		}
-		
-		button {
-			position: fixed;
-			top: 50%;
-			left: 50%;
-			transform: translateY(-50%); 
-			transform: translateX(-50%); 
-			font-size: 32px;
-			display: none;
-		}
+
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        button {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); 
+            font-size: 5vw;
+            padding: 10px 20px;
+            display: none;
+            z-index: 10;
+        }
     </style>
 </head>
 
 <body onload="startGame()">
-	<canvas id="myCanvas"></canvas>
-	<button onClick="refreshPage()" id="playAgain">Play again</button>
+    <canvas id="myCanvas"></canvas>
+    <button onClick="refreshPage()" id="playAgain">Play again</button>
     <script>
-        var myGamePiece; //initialize object
-        var myObstacles = []; //initialize obstacles
-        var myScore; //initialize score
+        var myGamePiece;
+        var myObstacles = [];
+        var myScore;
         var mySound;
         var myMusic;
+        var isGameOver = false;
 
         function startGame() {
-            myGameArea.start();
-            myGamePiece = new component(80, 63, "img/edo.png", 300, 300, "image");
-            //myObstacle = new component(310, 360, "pipe.png", 300, 120, "image");
+            myGamePiece = new component(80, 63, "img/edo.png", 300, 250, "image");
             myBackground = new component(1200, 580, "img/background.png", 0, 0, "image");
             myScore = new component("30px", "Consolas", "black", 280, 40, "text");
             mySound = new sound("sound/nantr.mp3");
             myMusic = new sound("sound/laugh.mp3");
-            myMusic.play();
+            
             myGameArea.start();
         }
+
+        // <<< NEW FUNCTION: To reset the game without reloading the page >>>
+        function resetGame() {
+            document.getElementById("playAgain").style.display = "none";
+            isGameOver = false;
+            myObstacles = [];
+            myGameArea.frameNo = 0;
+            
+            // Reset game piece position and speed
+            myGamePiece.y = 250;
+            myGamePiece.gravitySpeed = 0;
+
+            myMusic.play();
+            myGameArea.startAnimation(); // Restart the animation loop
+        }
+        
+        // <<< MODIFIED: Event listeners now handle restarting the game >>>
+        function handleInput(e) {
+            e.preventDefault(); // Prevents default action (scrolling, etc.)
+            if (isGameOver) {
+                resetGame(); // If game is over, restart it
+            } else {
+                accelerate(-6); // Otherwise, make the character jump
+            }
+        }
+        
+        // Keyboard control (Up Arrow)
+        window.addEventListener('keydown', function(e) {
+            if (e.keyCode == 38) { // 38 is the keycode for the Up Arrow key
+                handleInput(e);
+            }
+        });
+        
+        // Touch and Mouse controls
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', handleInput);
+
+
         var myGameArea = {
             canvas: document.getElementById("myCanvas"),
             start: function() {
@@ -56,18 +98,18 @@
                 this.canvas.height = 580;
                 this.context = this.canvas.getContext("2d");
                 document.body.insertBefore(this.canvas, document.body.childNodes[0]);
-                this.frameNo = 0; //display score in seperated canvas area
-                this.interval = setInterval(updateGameArea, 20);
-                window.addEventListener('keydown', function(e) {
-                    myGameArea.keys = (myGameArea.keys || []);
-                    myGameArea.keys[e.keyCode] = (e.type == "keydown");
-                })
-                window.addEventListener('keyup', function(e) {
-                    myGameArea.keys[e.keyCode] = (e.type == "keydown");
-                })
+                
+                resetGame(); // Use resetGame to initialize everything
+            },
+            startAnimation: function() {
+                this.animationFrame = window.requestAnimationFrame(updateGameArea);
             },
             clear: function() {
                 this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            },
+            stop: function() {
+                window.cancelAnimationFrame(this.animationFrame);
+                isGameOver = true;
             }
         }
 
@@ -77,23 +119,19 @@
                 this.image = new Image();
                 this.image.src = color;
             }
-            this.gamearea = myGameArea;
-            this.score = 0;
             this.width = width;
             this.height = height;
             this.speedX = 0;
             this.speedY = 0;
-            this.gravity = 0.001;
+            this.gravity = 0.25; 
             this.gravitySpeed = 0;
             this.x = x;
             this.y = y;
+
             this.update = function() {
                 ctx = myGameArea.context;
                 if (type == "image") {
-                    ctx.drawImage(this.image,
-                        this.x,
-                        this.y,
-                        this.width, this.height);
+                    ctx.drawImage(this.image, this.x, this.y, this.width, this.height);
                 } else if (this.type == "text") {
                     ctx.font = this.width + " " + this.height;
                     ctx.fillStyle = color;
@@ -103,18 +141,27 @@
                     ctx.fillRect(this.x, this.y, this.width, this.height);
                 }
             }
+
             this.newPos = function() {
                 this.gravitySpeed += this.gravity;
                 this.x += this.speedX;
                 this.y += this.speedY + this.gravitySpeed;
-                this.hitBottom();
+                this.hitBoundary();
             }
-            this.hitBottom = function() {
+
+            this.hitBoundary = function() {
                 var rockbottom = myGameArea.canvas.height - this.height;
                 if (this.y > rockbottom) {
                     this.y = rockbottom;
+                    this.gravitySpeed = 0;
+                }
+                var skyLimit = 0;
+                if (this.y < skyLimit) {
+                    this.y = skyLimit;
+                    this.gravitySpeed = 0;
                 }
             }
+
             this.crashWith = function(otherobj) {
                 var myleft = this.x;
                 var myright = this.x + (this.width);
@@ -140,58 +187,64 @@
             this.sound.style.display = "none";
             document.body.appendChild(this.sound);
             this.play = function() {
+                this.sound.currentTime = 0;
                 this.sound.play();
             }
             this.stop = function() {
                 this.sound.pause();
             }
         }
+        
+        function accelerate(n) {
+            if (!isGameOver) {
+                myGamePiece.gravitySpeed = n;
+            }
+        }
 
         function updateGameArea() {
             var x, height, gap, minHeight, maxHeight, minGap, maxGap;
+
             for (i = 0; i < myObstacles.length; i += 1) {
                 if (myGamePiece.crashWith(myObstacles[i])) {
-					document.getElementById("playAgain").style.display = "block";
+                    document.getElementById("playAgain").style.display = "block";
+                    myMusic.stop();
                     mySound.play();
                     myGameArea.stop();
                     return;
                 }
             }
+            
             myGameArea.clear();
-            myBackground.newPos();
             myBackground.update();
+
             myGameArea.frameNo += 1;
-            if (myGameArea.frameNo == 1 || everyinterval(300)) {
+            if (myGameArea.frameNo == 1 || everyinterval(200)) {
                 x = myGameArea.canvas.width;
-                minHeight = 55;
-                maxHeight = 138;
+                minHeight = 80;
+                maxHeight = 250;
                 height = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
-                minGap = 90;
-                maxGap = 150;
+                minGap = 150;
+                maxGap = 200;
                 gap = Math.floor(Math.random() * (maxGap - minGap + 1) + minGap);
                 myObstacles.push(new component(150, height, "img/pipereverse.png", x, 0, "image"));
                 myObstacles.push(new component(150, x - height - gap, "img/pipe.png", x, height + gap, "image"));
             }
-            myGamePiece.speedX = 0;
-            myGamePiece.speedY = 0;
-            if (myGameArea.keys && myGameArea.keys[32]) {
-                myGamePiece.speedY = -5;
-            }
+            
             for (i = 0; i < myObstacles.length; i += 1) {
-                myObstacles[i].x += -1;
+                myObstacles[i].x += -2;
                 myObstacles[i].update();
             }
+
+            myObstacles = myObstacles.filter(obstacle => obstacle.x > -obstacle.width);
+
             myScore.text = "SCORE: " + myGameArea.frameNo;
             myScore.update();
+            
             myGamePiece.newPos();
             myGamePiece.update();
-        }
-
-        function clearmove() {
-            myGamePiece.image.src = "img/flappy.png";
-            myGamePiece.image.src = "img/pipe.png"
-            myGamePiece.speedX = 0;
-            myGamePiece.speedY = 0;
+            
+            // Re-queue the next frame
+            myGameArea.animationFrame = window.requestAnimationFrame(updateGameArea);
         }
 
         function everyinterval(n) {
@@ -200,9 +253,11 @@
             }
             return false;
         }
-		function refreshPage(){
-			window.location.reload();
-		}
+
+        function refreshPage() {
+            window.location.reload();
+        }
     </script>
 </body>
+
 </html>
