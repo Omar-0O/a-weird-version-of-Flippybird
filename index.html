@@ -64,7 +64,7 @@
             // Initialize sounds
             mySound = new sound("sound/nantr.mp3");
             myMusic = new sound("sound/laugh.mp3");
-            myJumpSound = new sound("sound/jump.mp3"); // <<< NEW: JUMP SOUND
+            myJumpSound = new sound("sound/jump.mp3");
 
             myGameArea.start();
         }
@@ -98,7 +98,7 @@
             
             myObstacles = [];
             myGameArea.frameNo = 0;
-            myGameArea.score = 0; // <<< MODIFIED: Reset the real score
+            myGameArea.score = 0;
             
             myGamePiece.y = 250;
             myGamePiece.gravitySpeed = 0;
@@ -148,7 +148,7 @@
             this.gravitySpeed = 0;
             this.x = x;
             this.y = y;
-            this.passed = false; // <<< NEW: To track if an obstacle has been passed for scoring
+            this.passed = false;
 
             this.update = function() {
                 let ctx = myGameArea.context;
@@ -157,19 +157,18 @@
                 } else if (this.type === "text") {
                     ctx.font = this.width + " " + this.height;
                     ctx.fillStyle = color;
-                    // Center text for start screen
                     if (this === myStartText) {
                          ctx.textAlign = "center";
                          this.x = myGameArea.canvas.width / 2;
                          this.y = myGameArea.canvas.height / 2;
                     }
                     ctx.fillText(this.text, this.x, this.y);
-                    ctx.textAlign = "left"; // Reset alignment
+                    ctx.textAlign = "left";
                 }
             }
 
             this.newPos = function() {
-                if(gameState !== "PLAYING") return; // Player only moves when playing
+                if(gameState !== "PLAYING") return;
                 this.gravitySpeed += this.gravity;
                 this.x += this.speedX;
                 this.y += this.speedY + this.gravitySpeed;
@@ -183,7 +182,7 @@
             }
 
             this.crashWith = function(otherobj) {
-                var myleft = this.x + 10; // Making hitbox slightly smaller for fairness
+                var myleft = this.x + 10;
                 var myright = this.x + (this.width) - 10;
                 var mytop = this.y + 10;
                 var mybottom = this.y + (this.height) - 10;
@@ -208,41 +207,37 @@
         
         function accelerate(n) {
             myGamePiece.gravitySpeed = n;
-            myJumpSound.play(); // <<< NEW: Play jump sound
+            myJumpSound.play();
         }
 
-        // THE MAIN GAME LOOP - Handles all states
         function updateGameArea() {
             myGameArea.clear();
             
-            // <<< NEW: Seamless scrolling background >>>
             myBackground.x -= 1;
             myBackground2.x -= 1;
-            if (myBackground.x < -myBackground.width) { myBackground.x = myBackground2.x + myBackground2.width; }
-            if (myBackground2.x < -myBackground2.width) { myBackground2.x = myBackground2.x + myBackground.width; }
+            if (myBackground.x < -myBackground.width) { myBackground.x = myBackground.width + myBackground2.x; }
+            if (myBackground2.x < -myBackground2.width) { myBackground2.x = myBackground2.width + myBackground.x; }
             myBackground.update();
             myBackground2.update();
 
             if (gameState === "PREGAME") {
                 myStartText.text = "Press Up Arrow or Click to Start";
                 myStartText.update();
-                myGamePiece.update(); // Show the player character
+                myGamePiece.update();
             } 
             else if (gameState === "PLAYING") {
                 myGameArea.frameNo += 1;
 
-                // --- Crash Detection ---
                 for (let i = 0; i < myObstacles.length; i += 1) {
                     if (myGamePiece.crashWith(myObstacles[i])) {
                         document.getElementById("playAgain").style.display = "block";
                         myMusic.stop();
                         mySound.play();
                         myGameArea.stop();
-                        return; // Stop the function here
+                        return;
                     }
                 }
 
-                // --- Scoring System ---
                 for (let i = 0; i < myObstacles.length; i++) {
                     if (myObstacles[i].x < myGamePiece.x && !myObstacles[i].passed) {
                         myObstacles[i].passed = true;
@@ -250,12 +245,11 @@
                     }
                 }
                 
-                // --- Progressive Difficulty ---
                 let obstacleSpeed = -2 - Math.floor(myGameArea.score / 5);
                 let obstacleInterval = Math.max(120, 200 - myGameArea.score * 2);
 
-                // --- Generate Obstacles ---
-                if (everyinterval(obstacleInterval)) {
+                // <<< MODIFIED LINE: Generate obstacle on frame 1 OR at the interval >>>
+                if (myGameArea.frameNo === 1 || everyinterval(obstacleInterval)) {
                     let x = myGameArea.canvas.width;
                     let minHeight = 80, maxHeight = 250, minGap = 160, maxGap = 200;
                     let height = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
@@ -264,13 +258,11 @@
                     myObstacles.push(new component(150, x - height - gap, "img/pipe.png", x, height + gap, "image"));
                 }
                 
-                // --- Move and Update Obstacles ---
                 for (let i = 0; i < myObstacles.length; i += 1) {
                     myObstacles[i].x += obstacleSpeed;
                     myObstacles[i].update();
                 }
 
-                // Remove off-screen obstacles for performance
                 myObstacles = myObstacles.filter(obstacle => obstacle.x > -obstacle.width);
 
                 myScore.text = "SCORE: " + myGameArea.score;
@@ -280,7 +272,6 @@
                 myGamePiece.update();
             }
 
-            // Always request the next frame to keep the loop running for all game states
             if (gameState !== "GAMEOVER") {
                 myGameArea.animationFrame = window.requestAnimationFrame(updateGameArea);
             }
