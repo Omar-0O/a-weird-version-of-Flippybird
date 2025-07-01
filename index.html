@@ -18,6 +18,7 @@
         body {
             margin: 0;
             overflow: hidden;
+            font-family: 'Consolas', monospace;
         }
 
         button {
@@ -33,63 +34,79 @@
     </style>
 </head>
 
-<body onload="startGame()">
+<body onload="initGame()">
     <canvas id="myCanvas"></canvas>
     <button onClick="refreshPage()" id="playAgain">Play again</button>
     <script>
+        // Game Objects
         var myGamePiece;
         var myObstacles = [];
         var myScore;
+        var myStartText;
+        var myBackground, myBackground2; // Two backgrounds for seamless scrolling
+
+        // Sounds
         var mySound;
         var myMusic;
-        var isGameOver = false;
+        var myJumpSound;
 
-        function startGame() {
+        // Game State Management
+        var gameState = "PREGAME"; // Can be PREGAME, PLAYING, GAMEOVER
+
+        function initGame() {
+            // Initialize all game components
             myGamePiece = new component(80, 63, "img/edo.png", 300, 250, "image");
             myBackground = new component(1200, 580, "img/background.png", 0, 0, "image");
-            myScore = new component("30px", "Consolas", "black", 280, 40, "text");
+            myBackground2 = new component(1200, 580, "img/background.png", 1200, 0, "image"); // Second background
+            myScore = new component("30px", "Consolas", "black", 20, 40, "text");
+            myStartText = new component("40px", "Consolas", "black", 0, 0, "text");
+
+            // Initialize sounds
             mySound = new sound("sound/nantr.mp3");
             myMusic = new sound("sound/laugh.mp3");
-            
+            myJumpSound = new sound("sound/jump.mp3"); // <<< NEW: JUMP SOUND
+
             myGameArea.start();
         }
 
-        // <<< NEW FUNCTION: To reset the game without reloading the page >>>
+        // Handles all user input (keyboard, mouse, touch)
+        function handleInput(e) {
+            e.preventDefault();
+            
+            if (gameState === "PREGAME") {
+                // Start the game
+                gameState = "PLAYING";
+                myMusic.play();
+                accelerate(-6); // First jump
+            } else if (gameState === "PLAYING") {
+                // Jump while playing
+                accelerate(-6);
+            } else if (gameState === "GAMEOVER") {
+                // Reset the game after losing
+                resetGame();
+            }
+        }
+        
+        // Setup input listeners
+        window.addEventListener('keydown', function(e) { if (e.keyCode == 38) { handleInput(e); } });
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', handleInput);
+
+        // This function resets the game to a playable state
         function resetGame() {
             document.getElementById("playAgain").style.display = "none";
-            isGameOver = false;
+            
             myObstacles = [];
             myGameArea.frameNo = 0;
+            myGameArea.score = 0; // <<< MODIFIED: Reset the real score
             
-            // Reset game piece position and speed
             myGamePiece.y = 250;
             myGamePiece.gravitySpeed = 0;
 
             myMusic.play();
-            myGameArea.startAnimation(); // Restart the animation loop
+            gameState = "PLAYING";
+            myGameArea.startAnimation();
         }
-        
-        // <<< MODIFIED: Event listeners now handle restarting the game >>>
-        function handleInput(e) {
-            e.preventDefault(); // Prevents default action (scrolling, etc.)
-            if (isGameOver) {
-                resetGame(); // If game is over, restart it
-            } else {
-                accelerate(-6); // Otherwise, make the character jump
-            }
-        }
-        
-        // Keyboard control (Up Arrow)
-        window.addEventListener('keydown', function(e) {
-            if (e.keyCode == 38) { // 38 is the keycode for the Up Arrow key
-                handleInput(e);
-            }
-        });
-        
-        // Touch and Mouse controls
-        window.addEventListener('mousedown', handleInput);
-        window.addEventListener('touchstart', handleInput);
-
 
         var myGameArea = {
             canvas: document.getElementById("myCanvas"),
@@ -99,7 +116,11 @@
                 this.context = this.canvas.getContext("2d");
                 document.body.insertBefore(this.canvas, document.body.childNodes[0]);
                 
-                resetGame(); // Use resetGame to initialize everything
+                this.frameNo = 0;
+                this.score = 0;
+                
+                // Start the main game loop
+                this.animationFrame = window.requestAnimationFrame(updateGameArea);
             },
             startAnimation: function() {
                 this.animationFrame = window.requestAnimationFrame(updateGameArea);
@@ -109,13 +130,13 @@
             },
             stop: function() {
                 window.cancelAnimationFrame(this.animationFrame);
-                isGameOver = true;
+                gameState = "GAMEOVER";
             }
         }
 
         function component(width, height, color, x, y, type) {
             this.type = type;
-            if (type == "image") {
+            if (type === "image") {
                 this.image = new Image();
                 this.image.src = color;
             }
@@ -127,22 +148,28 @@
             this.gravitySpeed = 0;
             this.x = x;
             this.y = y;
+            this.passed = false; // <<< NEW: To track if an obstacle has been passed for scoring
 
             this.update = function() {
-                ctx = myGameArea.context;
-                if (type == "image") {
+                let ctx = myGameArea.context;
+                if (type === "image") {
                     ctx.drawImage(this.image, this.x, this.y, this.width, this.height);
-                } else if (this.type == "text") {
+                } else if (this.type === "text") {
                     ctx.font = this.width + " " + this.height;
                     ctx.fillStyle = color;
+                    // Center text for start screen
+                    if (this === myStartText) {
+                         ctx.textAlign = "center";
+                         this.x = myGameArea.canvas.width / 2;
+                         this.y = myGameArea.canvas.height / 2;
+                    }
                     ctx.fillText(this.text, this.x, this.y);
-                } else {
-                    ctx.fillStyle = color;
-                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                    ctx.textAlign = "left"; // Reset alignment
                 }
             }
 
             this.newPos = function() {
+                if(gameState !== "PLAYING") return; // Player only moves when playing
                 this.gravitySpeed += this.gravity;
                 this.x += this.speedX;
                 this.y += this.speedY + this.gravitySpeed;
@@ -151,31 +178,20 @@
 
             this.hitBoundary = function() {
                 var rockbottom = myGameArea.canvas.height - this.height;
-                if (this.y > rockbottom) {
-                    this.y = rockbottom;
-                    this.gravitySpeed = 0;
-                }
-                var skyLimit = 0;
-                if (this.y < skyLimit) {
-                    this.y = skyLimit;
-                    this.gravitySpeed = 0;
-                }
+                if (this.y > rockbottom) { this.y = rockbottom; this.gravitySpeed = 0; }
+                if (this.y < 0) { this.y = 0; this.gravitySpeed = 0; }
             }
 
             this.crashWith = function(otherobj) {
-                var myleft = this.x;
-                var myright = this.x + (this.width);
-                var mytop = this.y;
-                var mybottom = this.y + (this.height);
+                var myleft = this.x + 10; // Making hitbox slightly smaller for fairness
+                var myright = this.x + (this.width) - 10;
+                var mytop = this.y + 10;
+                var mybottom = this.y + (this.height) - 10;
                 var otherleft = otherobj.x;
                 var otherright = otherobj.x + (otherobj.width);
                 var othertop = otherobj.y;
                 var otherbottom = otherobj.y + (otherobj.height);
-                var crash = true;
-                if ((mybottom < othertop) || (mytop > otherbottom) || (myright < otherleft) || (myleft > otherright)) {
-                    crash = false;
-                }
-                return crash;
+                return !((mybottom < othertop) || (mytop > otherbottom) || (myright < otherleft) || (myleft > otherright));
             }
         }
 
@@ -186,72 +202,92 @@
             this.sound.setAttribute("controls", "none");
             this.sound.style.display = "none";
             document.body.appendChild(this.sound);
-            this.play = function() {
-                this.sound.currentTime = 0;
-                this.sound.play();
-            }
-            this.stop = function() {
-                this.sound.pause();
-            }
+            this.play = function() { this.sound.currentTime = 0; this.sound.play(); }
+            this.stop = function() { this.sound.pause(); }
         }
         
         function accelerate(n) {
-            if (!isGameOver) {
-                myGamePiece.gravitySpeed = n;
-            }
+            myGamePiece.gravitySpeed = n;
+            myJumpSound.play(); // <<< NEW: Play jump sound
         }
 
+        // THE MAIN GAME LOOP - Handles all states
         function updateGameArea() {
-            var x, height, gap, minHeight, maxHeight, minGap, maxGap;
-
-            for (i = 0; i < myObstacles.length; i += 1) {
-                if (myGamePiece.crashWith(myObstacles[i])) {
-                    document.getElementById("playAgain").style.display = "block";
-                    myMusic.stop();
-                    mySound.play();
-                    myGameArea.stop();
-                    return;
-                }
-            }
-            
             myGameArea.clear();
+            
+            // <<< NEW: Seamless scrolling background >>>
+            myBackground.x -= 1;
+            myBackground2.x -= 1;
+            if (myBackground.x < -myBackground.width) { myBackground.x = myBackground2.x + myBackground2.width; }
+            if (myBackground2.x < -myBackground2.width) { myBackground2.x = myBackground2.x + myBackground.width; }
             myBackground.update();
+            myBackground2.update();
 
-            myGameArea.frameNo += 1;
-            if (myGameArea.frameNo == 1 || everyinterval(200)) {
-                x = myGameArea.canvas.width;
-                minHeight = 80;
-                maxHeight = 250;
-                height = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
-                minGap = 150;
-                maxGap = 200;
-                gap = Math.floor(Math.random() * (maxGap - minGap + 1) + minGap);
-                myObstacles.push(new component(150, height, "img/pipereverse.png", x, 0, "image"));
-                myObstacles.push(new component(150, x - height - gap, "img/pipe.png", x, height + gap, "image"));
+            if (gameState === "PREGAME") {
+                myStartText.text = "Press Up Arrow or Click to Start";
+                myStartText.update();
+                myGamePiece.update(); // Show the player character
+            } 
+            else if (gameState === "PLAYING") {
+                myGameArea.frameNo += 1;
+
+                // --- Crash Detection ---
+                for (let i = 0; i < myObstacles.length; i += 1) {
+                    if (myGamePiece.crashWith(myObstacles[i])) {
+                        document.getElementById("playAgain").style.display = "block";
+                        myMusic.stop();
+                        mySound.play();
+                        myGameArea.stop();
+                        return; // Stop the function here
+                    }
+                }
+
+                // --- Scoring System ---
+                for (let i = 0; i < myObstacles.length; i++) {
+                    if (myObstacles[i].x < myGamePiece.x && !myObstacles[i].passed) {
+                        myObstacles[i].passed = true;
+                        myGameArea.score++;
+                    }
+                }
+                
+                // --- Progressive Difficulty ---
+                let obstacleSpeed = -2 - Math.floor(myGameArea.score / 5);
+                let obstacleInterval = Math.max(120, 200 - myGameArea.score * 2);
+
+                // --- Generate Obstacles ---
+                if (everyinterval(obstacleInterval)) {
+                    let x = myGameArea.canvas.width;
+                    let minHeight = 80, maxHeight = 250, minGap = 160, maxGap = 200;
+                    let height = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
+                    let gap = Math.floor(Math.random() * (maxGap - minGap + 1) + minGap);
+                    myObstacles.push(new component(150, height, "img/pipereverse.png", x, 0, "image"));
+                    myObstacles.push(new component(150, x - height - gap, "img/pipe.png", x, height + gap, "image"));
+                }
+                
+                // --- Move and Update Obstacles ---
+                for (let i = 0; i < myObstacles.length; i += 1) {
+                    myObstacles[i].x += obstacleSpeed;
+                    myObstacles[i].update();
+                }
+
+                // Remove off-screen obstacles for performance
+                myObstacles = myObstacles.filter(obstacle => obstacle.x > -obstacle.width);
+
+                myScore.text = "SCORE: " + myGameArea.score;
+                myScore.update();
+                
+                myGamePiece.newPos();
+                myGamePiece.update();
             }
-            
-            for (i = 0; i < myObstacles.length; i += 1) {
-                myObstacles[i].x += -2;
-                myObstacles[i].update();
+
+            // Always request the next frame to keep the loop running for all game states
+            if (gameState !== "GAMEOVER") {
+                myGameArea.animationFrame = window.requestAnimationFrame(updateGameArea);
             }
-
-            myObstacles = myObstacles.filter(obstacle => obstacle.x > -obstacle.width);
-
-            myScore.text = "SCORE: " + myGameArea.frameNo;
-            myScore.update();
-            
-            myGamePiece.newPos();
-            myGamePiece.update();
-            
-            // Re-queue the next frame
-            myGameArea.animationFrame = window.requestAnimationFrame(updateGameArea);
         }
 
         function everyinterval(n) {
-            if ((myGameArea.frameNo / n) % 1 == 0) {
-                return true;
-            }
-            return false;
+            return (myGameArea.frameNo / n) % 1 === 0;
         }
 
         function refreshPage() {
